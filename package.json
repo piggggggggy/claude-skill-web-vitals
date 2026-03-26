@@ -1,14 +1,22 @@
 {
-  "name": "web-vitals",
+  "name": "claude-skill-web-vitals",
   "version": "1.0.0",
-  "description": "",
+  "description": "Claude Code skill for measuring Core Web Vitals (LCP, CLS, INP, FCP, TTFB) on local dev servers",
   "main": "measure.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "measure": "node measure.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "claude-code",
+    "skill",
+    "web-vitals",
+    "performance",
+    "lighthouse",
+    "playwright",
+    "core-web-vitals"
+  ],
+  "author": "pyt4105@gmail.com",
+  "license": "MIT",
   "type": "commonjs",
   "dependencies": {
     "playwright": "^1.58.2"
