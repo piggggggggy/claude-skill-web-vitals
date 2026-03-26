@@ -206,7 +206,22 @@ async function main(config) {
     try {
       const context = await browser.newContext(deviceProfile);
       const page = await context.newPage();
-      await page.goto(config.url, { waitUntil: 'domcontentloaded', timeout: config.timeout });
+
+      // Block subsequent main-frame navigations after initial load.
+      // Some sites (e.g. Shopify) trigger JS redirects post-load that fail
+      // in headless Chrome (chrome-error://chromewebdata/), destroying context.
+      let initialNavDone = false;
+      await page.route('**/*', (route, request) => {
+        if (request.isNavigationRequest() && request.frame() === page.mainFrame() && initialNavDone) {
+          route.abort();
+        } else {
+          route.continue();
+        }
+      });
+
+      await page.goto(config.url, { waitUntil: 'load', timeout: config.timeout })
+        .catch(() => page.goto(config.url, { waitUntil: 'domcontentloaded', timeout: config.timeout }));
+      initialNavDone = true;
 
       // web-vitals 주입 + 옵저버 등록
       await injectWebVitals(page);
