@@ -126,6 +126,41 @@ function buildResult(config, rawRuns) {
   };
 }
 
+async function runLighthouse(url) {
+  const { execFileSync } = require('node:child_process');
+  try {
+    const stdout = execFileSync('npx', [
+      'lighthouse', url,
+      '--output=json',
+      '--quiet',
+      '--only-categories=performance',
+      '--chrome-flags=--headless=new --no-sandbox',
+    ], { timeout: 120000, maxBuffer: 10 * 1024 * 1024 });
+
+    const report = JSON.parse(stdout.toString());
+    const perf = report.categories?.performance;
+    const audits = report.audits || {};
+
+    const opportunities = Object.values(audits)
+      .filter(a => a.details?.type === 'opportunity' && a.score !== null && a.score < 1)
+      .sort((a, b) => (a.score || 0) - (b.score || 0))
+      .slice(0, 5)
+      .map(a => ({
+        title: a.title,
+        description: a.description,
+        score: a.score,
+        displayValue: a.displayValue || null,
+      }));
+
+    return {
+      score: perf ? Math.round(perf.score * 100) : null,
+      opportunities,
+    };
+  } catch (err) {
+    return { score: null, error: err.message, opportunities: [] };
+  }
+}
+
 async function main(config) {
   let chromium;
   try {
@@ -160,6 +195,11 @@ async function main(config) {
   }
 
   const result = buildResult(config, rawRuns);
+
+  if (config.lighthouse) {
+    result.lighthouse = await runLighthouse(config.url);
+  }
+
   console.log(JSON.stringify(result, null, 2));
 }
 
