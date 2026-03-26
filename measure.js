@@ -66,7 +66,6 @@ async function autoInteract(page) {
   // Intercept navigations during interaction to preserve metrics
   await page.route('**/*', (route) => {
     if (route.request().isNavigationRequest() && route.request().frame() === page.mainFrame()) {
-      // Allow the initial page, block subsequent navigations
       if (route.request().url() !== page.url()) {
         route.abort().catch(() => {});
         return;
@@ -75,23 +74,80 @@ async function autoInteract(page) {
     route.continue().catch(() => {});
   });
 
-  const selectors = 'button, a[href], input, select, [role="button"]';
-  const elements = await page.$$(selectors);
-  const visible = [];
+  const delay = (ms) => new Promise(r => setTimeout(r, ms));
+  const randomDelay = () => delay(200 + Math.random() * 400);
 
-  for (const el of elements) {
-    if (visible.length >= 5) break;
+  // 1. Click buttons and links
+  const clickTargets = await page.$$('button, a[href], [role="button"]');
+  let clickCount = 0;
+  for (const el of clickTargets) {
+    if (clickCount >= 5) break;
     const isVisible = await el.isVisible().catch(() => false);
-    if (isVisible) visible.push(el);
-  }
-
-  for (const el of visible) {
+    if (!isVisible) continue;
     try {
       await el.click({ timeout: 2000 });
-      await new Promise(r => setTimeout(r, 300));
-    } catch {
-      // 클릭 실패 시 무시하고 다음 요소
-    }
+      clickCount++;
+      await randomDelay();
+    } catch { /* skip */ }
+  }
+
+  // 2. Type into text inputs and textareas
+  const textInputs = await page.$$('input[type="text"], input[type="search"], input[type="email"], input[type="password"], input:not([type]), textarea');
+  let typeCount = 0;
+  for (const el of textInputs) {
+    if (typeCount >= 3) break;
+    const isVisible = await el.isVisible().catch(() => false);
+    if (!isVisible) continue;
+    try {
+      await el.click({ timeout: 1000 });
+      await delay(100);
+      await el.type('test input', { delay: 50 });
+      typeCount++;
+      await randomDelay();
+    } catch { /* skip */ }
+  }
+
+  // 3. Toggle checkboxes and radios
+  const toggles = await page.$$('input[type="checkbox"], input[type="radio"]');
+  let toggleCount = 0;
+  for (const el of toggles) {
+    if (toggleCount >= 3) break;
+    const isVisible = await el.isVisible().catch(() => false);
+    if (!isVisible) continue;
+    try {
+      await el.click({ timeout: 1000 });
+      toggleCount++;
+      await randomDelay();
+    } catch { /* skip */ }
+  }
+
+  // 4. Select options from dropdowns
+  const selects = await page.$$('select');
+  let selectCount = 0;
+  for (const el of selects) {
+    if (selectCount >= 2) break;
+    const isVisible = await el.isVisible().catch(() => false);
+    if (!isVisible) continue;
+    try {
+      const optionValues = await el.$$eval('option', opts =>
+        opts.filter(o => !o.disabled && o.value).map(o => o.value)
+      );
+      if (optionValues.length > 1) {
+        await el.selectOption(optionValues[1]);
+        selectCount++;
+        await randomDelay();
+      }
+    } catch { /* skip */ }
+  }
+
+  // 5. Tab through focusable elements
+  for (let i = 0; i < 5; i++) {
+    try {
+      await page.keyboard.press('Tab');
+      await delay(150);
+      await page.keyboard.press('Enter');
+      await randomDelay();
+    } catch { /* skip */ }
   }
 
   // Remove route interception

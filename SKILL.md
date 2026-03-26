@@ -51,7 +51,7 @@ disable-model-invocation: false
 ### Phase 4: 측정 실행
 
 1. 기본 실행: node {skill_dir}/measure.js --url http://localhost:{port} --runs 3
-2. --device 옵션: mobile(기본) 또는 desktop. 모바일은 iPhone 14 에뮬레이션(390x844, 터치, 모바일 UA), 데스크톱은 1920x1080
+2. --device 옵션: desktop(기본) 또는 mobile. 데스크톱은 1920x1080, 모바일은 iPhone 14 에뮬레이션(390x844, 터치, 모바일 UA)
 3. 사용자가 옵션을 지정한 경우 플래그 추가
 3. --paths로 추가 경로가 지정되면 각 경로별로 반복 실행
 4. JSON 결과를 파싱한다

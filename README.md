@@ -76,12 +76,28 @@ In Claude Code:
 }
 ```
 
+## INP Measurement
+
+INP (Interaction to Next Paint) requires real user interactions to measure. This tool automatically simulates diverse interactions to trigger INP:
+
+| Interaction | Target | Max Count |
+|-------------|--------|-----------|
+| **Click** | Buttons, links, `[role="button"]` | 5 |
+| **Type** | Text inputs, search, email, textarea | 3 |
+| **Toggle** | Checkboxes, radio buttons | 3 |
+| **Select** | Dropdown `<select>` elements | 2 |
+| **Keyboard** | Tab + Enter through focusable elements | 5 |
+
+Each interaction uses a randomized delay (200-600ms) to simulate realistic user behavior. Navigation during interaction is intercepted to prevent metric loss.
+
+For more accurate INP measurement on complex pages, use `--interactive` to manually interact with the page for 30 seconds.
+
 ## How It Works
 
 1. **Project detection** — Reads `package.json` to find the dev server command
 2. **Server management** — Auto-detects running server or starts one
 3. **Measurement** — Launches Playwright headless browser, injects web-vitals CDN, collects metrics
-4. **INP** — Auto-clicks visible interactive elements (buttons, links, inputs) to trigger INP measurement
+4. **INP** — Auto-simulates diverse user interactions (click, type, toggle, select, keyboard navigation) to trigger INP measurement
 5. **Aggregation** — Takes median of N runs for each metric
 6. **Report** — Outputs to terminal + saves Markdown file
 
