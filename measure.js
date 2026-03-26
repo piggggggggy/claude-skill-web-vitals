@@ -10,7 +10,7 @@ const options = {
   lighthouse:  { type: 'boolean', default: false },
   timeout:     { type: 'string',  default: '30000' },
   quick:       { type: 'boolean', default: false },
-  device:      { type: 'string',  default: 'mobile' },
+  device:      { type: 'string',  default: 'desktop' },
 };
 
 const { values } = parseArgs({ options, allowPositionals: false });
