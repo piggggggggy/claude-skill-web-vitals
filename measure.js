@@ -26,19 +26,26 @@ const config = {
   device,
 };
 
-async function collectMetrics(page, timeoutMs) {
-  // web-vitals CDN 주입
+async function injectWebVitals(page) {
   const cdnUrl = 'https://unpkg.com/web-vitals@4/dist/web-vitals.iife.js';
+
+  // Try addScriptTag first, then fetch+evaluate as fallback
+  let loaded = false;
   try {
     await page.addScriptTag({ url: cdnUrl });
-  } catch {
-    // CSP 차단 시 인라인 fallback
+    loaded = await page.evaluate(() => typeof window.webVitals !== 'undefined');
+  } catch { /* CSP or network block */ }
+
+  if (!loaded) {
     const response = await fetch(cdnUrl);
     const script = await response.text();
-    await page.evaluate(script);
+    await page.addScriptTag({ content: script });
+    loaded = await page.evaluate(() => typeof window.webVitals !== 'undefined');
   }
 
-  // 메트릭 수집 시작
+  if (!loaded) throw new Error('web-vitals library failed to load');
+
+  // 메트릭 옵저버 등록
   await page.evaluate(() => {
     window.__webVitals = {};
     const { onLCP, onCLS, onFCP, onTTFB, onINP } = window.webVitals;
@@ -48,11 +55,10 @@ async function collectMetrics(page, timeoutMs) {
     onTTFB(m => { window.__webVitals.TTFB = m.value; });
     onINP(m  => { window.__webVitals.INP  = m.value; }, { reportAllChanges: true });
   });
+}
 
-  // 타임아웃까지 대기 후 수집
-  await new Promise(r => setTimeout(r, Math.min(timeoutMs, 10000)));
-
-  // 페이지 visibility hidden으로 변경하여 LCP 확정
+async function finalizeMetrics(page) {
+  // visibilitychange로 LCP/CLS/INP 확정
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
     document.dispatchEvent(new Event('visibilitychange'));
@@ -63,95 +69,21 @@ async function collectMetrics(page, timeoutMs) {
 }
 
 async function autoInteract(page) {
-  // Intercept navigations during interaction to preserve metrics
-  await page.route('**/*', (route) => {
-    if (route.request().isNavigationRequest() && route.request().frame() === page.mainFrame()) {
-      if (route.request().url() !== page.url()) {
-        route.abort().catch(() => {});
-        return;
-      }
-    }
-    route.continue().catch(() => {});
-  });
+  // Click a few non-form buttons to trigger INP measurement.
+  // Intentionally simple — for accurate INP, use --interactive mode.
+  const buttons = await page.$$('button:not([type="submit"]):not(form button), [role="button"]');
+  let clicked = 0;
 
-  const delay = (ms) => new Promise(r => setTimeout(r, ms));
-  const randomDelay = () => delay(200 + Math.random() * 400);
-
-  // 1. Click buttons and links
-  const clickTargets = await page.$$('button, a[href], [role="button"]');
-  let clickCount = 0;
-  for (const el of clickTargets) {
-    if (clickCount >= 5) break;
+  for (const el of buttons) {
+    if (clicked >= 5) break;
     const isVisible = await el.isVisible().catch(() => false);
     if (!isVisible) continue;
     try {
       await el.click({ timeout: 2000 });
-      clickCount++;
-      await randomDelay();
+      clicked++;
+      await new Promise(r => setTimeout(r, 300));
     } catch { /* skip */ }
   }
-
-  // 2. Type into text inputs and textareas
-  const textInputs = await page.$$('input[type="text"], input[type="search"], input[type="email"], input[type="password"], input:not([type]), textarea');
-  let typeCount = 0;
-  for (const el of textInputs) {
-    if (typeCount >= 3) break;
-    const isVisible = await el.isVisible().catch(() => false);
-    if (!isVisible) continue;
-    try {
-      await el.click({ timeout: 1000 });
-      await delay(100);
-      await el.type('test input', { delay: 50 });
-      typeCount++;
-      await randomDelay();
-    } catch { /* skip */ }
-  }
-
-  // 3. Toggle checkboxes and radios
-  const toggles = await page.$$('input[type="checkbox"], input[type="radio"]');
-  let toggleCount = 0;
-  for (const el of toggles) {
-    if (toggleCount >= 3) break;
-    const isVisible = await el.isVisible().catch(() => false);
-    if (!isVisible) continue;
-    try {
-      await el.click({ timeout: 1000 });
-      toggleCount++;
-      await randomDelay();
-    } catch { /* skip */ }
-  }
-
-  // 4. Select options from dropdowns
-  const selects = await page.$$('select');
-  let selectCount = 0;
-  for (const el of selects) {
-    if (selectCount >= 2) break;
-    const isVisible = await el.isVisible().catch(() => false);
-    if (!isVisible) continue;
-    try {
-      const optionValues = await el.$$eval('option', opts =>
-        opts.filter(o => !o.disabled && o.value).map(o => o.value)
-      );
-      if (optionValues.length > 1) {
-        await el.selectOption(optionValues[1]);
-        selectCount++;
-        await randomDelay();
-      }
-    } catch { /* skip */ }
-  }
-
-  // 5. Tab through focusable elements
-  for (let i = 0; i < 5; i++) {
-    try {
-      await page.keyboard.press('Tab');
-      await delay(150);
-      await page.keyboard.press('Enter');
-      await randomDelay();
-    } catch { /* skip */ }
-  }
-
-  // Remove route interception
-  await page.unroute('**/*').catch(() => {});
 }
 
 const THRESHOLDS = {
@@ -267,32 +199,58 @@ async function main(config) {
   const rawRuns = [];
 
   for (let i = 0; i < config.runs; i++) {
-    const browser = await chromium.launch({
-      headless: !config.interactive,
-    });
-    const context = await browser.newContext(deviceProfile);
-    const page = await context.newPage();
-    await page.goto(config.url, { waitUntil: 'networkidle', timeout: config.timeout });
+    const launchOptions = config.interactive
+      ? { headless: false }
+      : { headless: false, args: ['--headless=new'] };
+    const browser = await chromium.launch(launchOptions);
 
-    const preInteractMetrics = await collectMetrics(page, config.timeout);
+    try {
+      const context = await browser.newContext(deviceProfile);
+      const page = await context.newPage();
+      await page.goto(config.url, { waitUntil: 'domcontentloaded', timeout: config.timeout });
 
-    if (config.interactive) {
-      console.error('Interactive mode: 브라우저에서 30초간 자유롭게 조작하세요...');
-      await new Promise(r => setTimeout(r, 30000));
-    } else {
-      await autoInteract(page);
+      // web-vitals 주입 + 옵저버 등록
+      await injectWebVitals(page);
+
+      // FCP/TTFB/LCP 등 초기 메트릭 수집 대기
+      await new Promise(r => setTimeout(r, 3000));
+
+      // 초기 메트릭 스냅샷 (인터랙션 전)
+      const preMetrics = await page.evaluate(() => ({ ...window.__webVitals })).catch(() => ({}));
+
+      // 인터랙션 수행 (INP 트리거)
+      if (config.interactive) {
+        console.error('Interactive mode: 브라우저에서 30초간 자유롭게 조작하세요...');
+        await new Promise(r => setTimeout(r, 30000));
+      } else {
+        await autoInteract(page);
+      }
+      await new Promise(r => setTimeout(r, 500));
+
+      // visibilitychange로 LCP/CLS/INP 확정 후 메트릭 수집
+      let postMetrics;
+      try {
+        postMetrics = await finalizeMetrics(page);
+      } catch {
+        postMetrics = await page.evaluate(() => window.__webVitals).catch(() => null);
+      }
+
+      // 병합: postMetrics 우선, navigation으로 유실된 항목은 preMetrics로 보완
+      const merged = { ...preMetrics };
+      if (postMetrics && typeof postMetrics === 'object') {
+        for (const key of Object.keys(postMetrics)) {
+          if (postMetrics[key] !== null && postMetrics[key] !== undefined) {
+            merged[key] = postMetrics[key];
+          }
+        }
+      }
+      rawRuns.push(merged);
+    } catch {
+      // Run failed (navigation, timeout, etc.) — skip this run
+      rawRuns.push({});
+    } finally {
+      await browser.close();
     }
-    await new Promise(r => setTimeout(r, 500));
-
-    // After interaction, page may have navigated (e.g. clicking links),
-    // which destroys window.__webVitals. Fall back to pre-interaction metrics.
-    const postMetrics = await page.evaluate(() => window.__webVitals).catch(() => null);
-    const metrics = (postMetrics && typeof postMetrics === 'object' && Object.keys(postMetrics).length > 0)
-      ? postMetrics
-      : preInteractMetrics;
-    rawRuns.push(metrics);
-
-    await browser.close();
   }
 
   const result = buildResult(config, rawRuns);
