@@ -10,9 +10,12 @@ const options = {
   lighthouse:  { type: 'boolean', default: false },
   timeout:     { type: 'string',  default: '30000' },
   quick:       { type: 'boolean', default: false },
+  device:      { type: 'string',  default: 'mobile' },
 };
 
 const { values } = parseArgs({ options, allowPositionals: false });
+
+const device = ['mobile', 'desktop'].includes(values.device) ? values.device : 'mobile';
 
 const config = {
   url:         values.url,
@@ -20,6 +23,7 @@ const config = {
   interactive: values.interactive,
   lighthouse:  values.lighthouse,
   timeout:     parseInt(values.timeout, 10),
+  device,
 };
 
 async function collectMetrics(page, timeoutMs) {
@@ -59,6 +63,18 @@ async function collectMetrics(page, timeoutMs) {
 }
 
 async function autoInteract(page) {
+  // Intercept navigations during interaction to preserve metrics
+  await page.route('**/*', (route) => {
+    if (route.request().isNavigationRequest() && route.request().frame() === page.mainFrame()) {
+      // Allow the initial page, block subsequent navigations
+      if (route.request().url() !== page.url()) {
+        route.abort().catch(() => {});
+        return;
+      }
+    }
+    route.continue().catch(() => {});
+  });
+
   const selectors = 'button, a[href], input, select, [role="button"]';
   const elements = await page.$$(selectors);
   const visible = [];
@@ -77,6 +93,9 @@ async function autoInteract(page) {
       // 클릭 실패 시 무시하고 다음 요소
     }
   }
+
+  // Remove route interception
+  await page.unroute('**/*').catch(() => {});
 }
 
 const THRESHOLDS = {
@@ -118,6 +137,7 @@ function buildResult(config, rawRuns) {
 
   return {
     url: config.url,
+    device: config.device,
     runs: config.runs,
     timestamp: new Date().toISOString(),
     metrics,
@@ -126,16 +146,18 @@ function buildResult(config, rawRuns) {
   };
 }
 
-async function runLighthouse(url) {
+async function runLighthouse(url, device) {
   const { execFileSync } = require('node:child_process');
   try {
-    const stdout = execFileSync('npx', [
+    const args = [
       'lighthouse', url,
       '--output=json',
       '--quiet',
       '--only-categories=performance',
       '--chrome-flags=--headless=new --no-sandbox',
-    ], { timeout: 120000, maxBuffer: 10 * 1024 * 1024 });
+    ];
+    if (device === 'desktop') args.push('--preset=desktop');
+    const stdout = execFileSync('npx', args, { timeout: 120000, maxBuffer: 10 * 1024 * 1024 });
 
     const report = JSON.parse(stdout.toString());
     const perf = report.categories?.performance;
@@ -161,6 +183,22 @@ async function runLighthouse(url) {
   }
 }
 
+const DEVICE_PROFILES = {
+  mobile: {
+    viewport: { width: 390, height: 844 },
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    deviceScaleFactor: 3,
+    isMobile: true,
+    hasTouch: true,
+  },
+  desktop: {
+    viewport: { width: 1920, height: 1080 },
+    deviceScaleFactor: 1,
+    isMobile: false,
+    hasTouch: false,
+  },
+};
+
 async function main(config) {
   let chromium;
   try {
@@ -169,16 +207,18 @@ async function main(config) {
     chromium = require('playwright-core').chromium;
   }
 
+  const deviceProfile = DEVICE_PROFILES[config.device];
   const rawRuns = [];
 
   for (let i = 0; i < config.runs; i++) {
     const browser = await chromium.launch({
       headless: !config.interactive,
     });
-    const page = await browser.newPage();
+    const context = await browser.newContext(deviceProfile);
+    const page = await context.newPage();
     await page.goto(config.url, { waitUntil: 'networkidle', timeout: config.timeout });
 
-    await collectMetrics(page, config.timeout);
+    const preInteractMetrics = await collectMetrics(page, config.timeout);
 
     if (config.interactive) {
       console.error('Interactive mode: 브라우저에서 30초간 자유롭게 조작하세요...');
@@ -188,7 +228,12 @@ async function main(config) {
     }
     await new Promise(r => setTimeout(r, 500));
 
-    const metrics = await page.evaluate(() => window.__webVitals);
+    // After interaction, page may have navigated (e.g. clicking links),
+    // which destroys window.__webVitals. Fall back to pre-interaction metrics.
+    const postMetrics = await page.evaluate(() => window.__webVitals).catch(() => null);
+    const metrics = (postMetrics && typeof postMetrics === 'object' && Object.keys(postMetrics).length > 0)
+      ? postMetrics
+      : preInteractMetrics;
     rawRuns.push(metrics);
 
     await browser.close();
@@ -197,7 +242,7 @@ async function main(config) {
   const result = buildResult(config, rawRuns);
 
   if (config.lighthouse) {
-    result.lighthouse = await runLighthouse(config.url);
+    result.lighthouse = await runLighthouse(config.url, config.device);
   }
 
   console.log(JSON.stringify(result, null, 2));
