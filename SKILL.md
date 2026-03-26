@@ -65,6 +65,7 @@ disable-model-invocation: false
 1. 터미널에 메트릭 테이블 출력 (Rating 이모지: Good → ✅, Needs Improvement → ⚠️, Poor → ❌, null → ➖)
 2. report-template.md를 기반으로 docs/web-vitals/{YYYY-MM-DD-HH:mm}.md에 저장
 3. docs/web-vitals/ 에 이전 측정 파일이 있으면 비교하여 개선/악화 트렌드를 언급한다
+4. Lighthouse score가 0이거나 대부분의 메트릭이 null이면, dev 서버 TTFB + Lighthouse throttling 합산에 의한 타임아웃 가능성을 안내한다 (상세: diagnostics.md "Lighthouse 결과 해석" 참조)
 
 ### Phase 6: 코드 기반 진단
 
