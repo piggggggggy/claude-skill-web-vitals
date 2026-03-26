@@ -37,11 +37,12 @@ async function collectMetrics(page, timeoutMs) {
   // 메트릭 수집 시작
   await page.evaluate(() => {
     window.__webVitals = {};
-    const { onLCP, onCLS, onFCP, onTTFB } = window.webVitals;
+    const { onLCP, onCLS, onFCP, onTTFB, onINP } = window.webVitals;
     onLCP(m  => { window.__webVitals.LCP  = m.value; }, { reportAllChanges: true });
     onCLS(m  => { window.__webVitals.CLS  = m.value; }, { reportAllChanges: true });
     onFCP(m  => { window.__webVitals.FCP  = m.value; });
     onTTFB(m => { window.__webVitals.TTFB = m.value; });
+    onINP(m  => { window.__webVitals.INP  = m.value; }, { reportAllChanges: true });
   });
 
   // 타임아웃까지 대기 후 수집
@@ -49,11 +50,33 @@ async function collectMetrics(page, timeoutMs) {
 
   // 페이지 visibility hidden으로 변경하여 LCP 확정
   await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
     document.dispatchEvent(new Event('visibilitychange'));
   });
   await new Promise(r => setTimeout(r, 500));
 
   return await page.evaluate(() => window.__webVitals);
+}
+
+async function autoInteract(page) {
+  const selectors = 'button, a[href], input, select, [role="button"]';
+  const elements = await page.$$(selectors);
+  const visible = [];
+
+  for (const el of elements) {
+    if (visible.length >= 5) break;
+    const isVisible = await el.isVisible().catch(() => false);
+    if (isVisible) visible.push(el);
+  }
+
+  for (const el of visible) {
+    try {
+      await el.click({ timeout: 2000 });
+      await new Promise(r => setTimeout(r, 300));
+    } catch {
+      // 클릭 실패 시 무시하고 다음 요소
+    }
+  }
 }
 
 const THRESHOLDS = {
@@ -80,7 +103,7 @@ function median(arr) {
 }
 
 function buildResult(config, rawRuns) {
-  const metricNames = ['LCP', 'FCP', 'CLS', 'TTFB'];
+  const metricNames = ['LCP', 'FCP', 'CLS', 'TTFB', 'INP'];
   const metrics = {};
 
   for (const name of metricNames) {
@@ -114,11 +137,23 @@ async function main(config) {
   const rawRuns = [];
 
   for (let i = 0; i < config.runs; i++) {
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch({
+      headless: !config.interactive,
+    });
     const page = await browser.newPage();
     await page.goto(config.url, { waitUntil: 'networkidle', timeout: config.timeout });
 
-    const metrics = await collectMetrics(page, config.timeout);
+    await collectMetrics(page, config.timeout);
+
+    if (config.interactive) {
+      console.error('Interactive mode: 브라우저에서 30초간 자유롭게 조작하세요...');
+      await new Promise(r => setTimeout(r, 30000));
+    } else {
+      await autoInteract(page);
+    }
+    await new Promise(r => setTimeout(r, 500));
+
+    const metrics = await page.evaluate(() => window.__webVitals);
     rawRuns.push(metrics);
 
     await browser.close();
