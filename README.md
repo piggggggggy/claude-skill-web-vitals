@@ -21,25 +21,22 @@ In Claude Code:
 
 ```
 /web-vitals                          # Measure homepage (desktop, 3 runs)
+/web-vitals --quick                  # Single run (fast check)
 /web-vitals --device mobile          # Mobile emulation (iPhone 14)
 /web-vitals --lighthouse             # Add Lighthouse performance audit
-/web-vitals --quick                  # Single run (fast check)
-/web-vitals --interactive            # Manual interaction mode (30s)
+/web-vitals --interactive            # Manual interaction for accurate INP
 /web-vitals --paths /,/about         # Measure multiple pages
-/web-vitals --device mobile --lighthouse --quick
+/web-vitals --device mobile --quick --lighthouse
 ```
 
 ## Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
+| `--quick` | `false` | Single run mode (default: 3 runs with median) |
 | `--device` | `desktop` | `desktop` (1920x1080) or `mobile` (iPhone 14, 390x844) |
-| `--runs` | `3` | Number of measurement runs (median is used) |
-| `--quick` | `false` | Single run mode (overrides --runs) |
 | `--lighthouse` | `false` | Add Lighthouse Performance score + improvement opportunities |
-| `--interactive` | `false` | Opens headed browser for 30s manual interaction (for INP) |
-| `--url` | `localhost:3000` | Target URL (auto-detected from package.json) |
-| `--timeout` | `30000` | Page load timeout in ms |
+| `--interactive` | `false` | Opens headed browser for 30s manual interaction (for accurate INP) |
 
 ## What It Measures
 
@@ -102,7 +99,16 @@ This tool takes a best-effort approach:
 ```bash
 node measure.js --url http://localhost:3000 --quick
 node measure.js --url http://localhost:3000 --device mobile --lighthouse
+node measure.js --url http://localhost:3000 --runs 5 --timeout 60000
 ```
+
+Additional options for standalone usage:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--url` | `http://localhost:3000` | Target URL |
+| `--runs` | `3` | Number of measurement runs |
+| `--timeout` | `30000` | Page load timeout in ms |
 
 ## Requirements
 

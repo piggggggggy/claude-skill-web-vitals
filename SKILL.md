@@ -13,13 +13,13 @@ disable-model-invocation: false
 ## 사용법
 
 ```
-/web-vitals
-/web-vitals --lighthouse
-/web-vitals --paths /,/about,/products
-/web-vitals --interactive
-/web-vitals --quick
-/web-vitals --device desktop
-/web-vitals --device mobile --lighthouse
+/web-vitals                          # 기본 (desktop, 3회 측정)
+/web-vitals --quick                  # 빠른 측정 (1회)
+/web-vitals --device mobile          # 모바일 에뮬레이션 (iPhone 14)
+/web-vitals --lighthouse             # Lighthouse 성능 감사 추가
+/web-vitals --interactive            # 수동 조작 모드 (정확한 INP 측정)
+/web-vitals --paths /,/about         # 여러 페이지 측정
+/web-vitals --device mobile --quick --lighthouse
 ```
 
 ## 프로세스
@@ -50,10 +50,13 @@ disable-model-invocation: false
 
 ### Phase 4: 측정 실행
 
-1. 기본 실행: node {skill_dir}/measure.js --url http://localhost:{port} --runs 3
-2. --device 옵션: desktop(기본) 또는 mobile. 데스크톱은 1920x1080, 모바일은 iPhone 14 에뮬레이션(390x844, 터치, 모바일 UA)
-3. 사용자가 옵션을 지정한 경우 플래그 추가
-3. --paths로 추가 경로가 지정되면 각 경로별로 반복 실행
+1. 기본 실행: node {skill_dir}/measure.js --url http://localhost:{port}
+2. 사용자 옵션에 따라 플래그 추가:
+   - --quick → 1회 측정 (기본 3회)
+   - --device mobile → 모바일 에뮬레이션 (iPhone 14, 390x844)
+   - --lighthouse → Lighthouse 성능 감사 추가
+   - --interactive → headed 브라우저 30초 수동 조작 (INP 정확 측정)
+3. --paths로 경로가 지정되면 각 경로별로 반복 실행
 4. JSON 결과를 파싱한다
 5. 모든 메트릭이 null이면 중단: "메트릭을 수집할 수 없었습니다"
 

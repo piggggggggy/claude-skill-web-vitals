@@ -5,25 +5,24 @@ const { parseArgs } = require('node:util');
 
 const options = {
   url:         { type: 'string',  default: 'http://localhost:3000' },
-  runs:        { type: 'string',  default: '3' },
-  interactive: { type: 'boolean', default: false },
-  lighthouse:  { type: 'boolean', default: false },
-  timeout:     { type: 'string',  default: '30000' },
-  quick:       { type: 'boolean', default: false },
   device:      { type: 'string',  default: 'desktop' },
+  quick:       { type: 'boolean', default: false },
+  lighthouse:  { type: 'boolean', default: false },
+  interactive: { type: 'boolean', default: false },
+  // Advanced (standalone usage)
+  runs:        { type: 'string',  default: '3' },
+  timeout:     { type: 'string',  default: '30000' },
 };
 
 const { values } = parseArgs({ options, allowPositionals: false });
 
-const device = ['mobile', 'desktop'].includes(values.device) ? values.device : 'mobile';
-
 const config = {
   url:         values.url,
+  device:      ['mobile', 'desktop'].includes(values.device) ? values.device : 'desktop',
   runs:        values.quick ? 1 : parseInt(values.runs, 10),
-  interactive: values.interactive,
   lighthouse:  values.lighthouse,
+  interactive: values.interactive,
   timeout:     parseInt(values.timeout, 10),
-  device,
 };
 
 async function injectWebVitals(page) {
